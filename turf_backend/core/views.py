@@ -294,29 +294,41 @@ from .models import Turf
 
 
 
-@api_view(['GET'])
+@api_view(["GET"])
 def turf_slots(request):
-    turf_id = request.GET.get("turf_id")
-    date = request.GET.get("date")
+
+    turf_id = request.query_params.get("turf_id")
+    date_str = request.query_params.get("date")
 
     if not turf_id:
         return Response({"error": "turf_id required"}, status=400)
 
-    slots = Slot.objects.filter(turf_id=turf_id).order_by("start_time")
+    # Get ALL slots for this turf
+    slots = Slot.objects.filter(turf_id=turf_id)
 
-    data = []
+    selected_date = None
+    booked_slot_ids = set()
 
-    for slot in slots:
-        data.append({
-            "id": slot.id,
-            "start_time": slot.start_time.strftime("%H:%M"),
-            "end_time": slot.end_time.strftime("%H:%M"),
-            "time_display": f"{slot.start_time.strftime('%I:%M %p')} - {slot.end_time.strftime('%I:%M %p')}",
-            "price": slot.price,
-            "is_available": slot.is_available   # 🔥 IMPORTANT
-        })
+    # ✅ DATE FILTER & BOOKING CHECK
+    if date_str:
+        try:
+            selected_date = datetime.strptime(
+                date_str, "%Y-%m-%d"
+            ).date()
+        except ValueError:
+            return Response({"error": "Invalid date"}, status=400)
 
-    return Response(data)
+        # 🚀 Find booked slots for this specific date
+        bookings = Booking.objects.filter(
+            turf_id=turf_id,
+            date=selected_date,
+            status__in=["CONFIRMED"]
+        ).prefetch_related('slots')
+
+        for booking in bookings:
+            for s in booking.slots.all():
+                booked_slot_ids.add(s.id)
+
 
 @api_view(['GET'])
 def turf_details(request, turf_id):

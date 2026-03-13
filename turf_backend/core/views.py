@@ -16,6 +16,7 @@ from django.http import JsonResponse
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
 from django.utils.timezone import now
+from django.views.decorators.csrf import csrf_exempt
 
 import razorpay
 from django.conf import settings
@@ -29,7 +30,7 @@ from core.utils.whatsapp_service import send_whatsapp
 from django.contrib.auth import get_user_model
 User = get_user_model()
 
-from core.serializers import SlotSerializer, TurfSerializer,BookingListSerializer,VendorTurfCreateSerializer,AdminTurfCreateSerializer
+from core.serializers import SlotSerializer, TurfSerializer,BookingListSerializer,VendorTurfCreateSerializer,AdminTurfCreateSerializer, UserIssueSerializer
 from core.models import (
     AppUser,
     UserManager,
@@ -43,7 +44,9 @@ from core.models import (
     AdminUser,
     Game,
     PeakHour,
+    UserIssue,
 )
+from core.utils.whatsapp_service import send_whatsapp
 
 @api_view(['GET'])
 def home(request):
@@ -259,6 +262,8 @@ def list_turfs(request):
             } if t.owner else {"id": None, "username": None, "email": None},
             
             "is_approved": t.is_approved,
+            "is_popular": t.is_popular,
+            "priority": getattr(t, 'priority', 0),
         })
 
     return Response(data)
@@ -294,40 +299,6 @@ from .models import Turf
 
 
 
-@api_view(["GET"])
-def turf_slots(request):
-
-    turf_id = request.query_params.get("turf_id")
-    date_str = request.query_params.get("date")
-
-    if not turf_id:
-        return Response({"error": "turf_id required"}, status=400)
-
-    # Get ALL slots for this turf
-    slots = Slot.objects.filter(turf_id=turf_id)
-
-    selected_date = None
-    booked_slot_ids = set()
-
-    # ✅ DATE FILTER & BOOKING CHECK
-    if date_str:
-        try:
-            selected_date = datetime.strptime(
-                date_str, "%Y-%m-%d"
-            ).date()
-        except ValueError:
-            return Response({"error": "Invalid date"}, status=400)
-
-        # 🚀 Find booked slots for this specific date
-        bookings = Booking.objects.filter(
-            turf_id=turf_id,
-            date=selected_date,
-            status__in=["CONFIRMED"]
-        ).prefetch_related('slots')
-
-        for booking in bookings:
-            for s in booking.slots.all():
-                booked_slot_ids.add(s.id)
 
 
 @api_view(['GET'])
@@ -850,11 +821,68 @@ def admin_login(request):
         "message": "Admin login successful"
     })
 
+# -------------------- USER ISSUE SUBMISSION (Public) --------------------
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def submit_issue(request):
+    """Users submit support issues - notifies all admins via WhatsApp"""
+    serializer = UserIssueSerializer(data=request.data)
+    if serializer.is_valid():
+        issue = serializer.save()
+        
+        # Notify ALL active admins via WhatsApp
+        admins = AdminUser.objects.filter(is_active=True)
+        for admin in admins:
+            message = f"""
+NEW USER ISSUE RECEIVED
+
+Title: {issue.title}
+User: {issue.name} ({issue.phone})
+Email: {issue.email}
+Details: {issue.description[:200]}...
+
+Issue ID: {issue.id}
+View: /admin/issues/
+"""
+            send_whatsapp(admin.phone, message)
+        
+        return Response({
+            "success": True,
+            "message": "Issue submitted & admin notified!",
+            "issue_id": issue.id
+        })
+    return Response(serializer.errors, status=400)
+
+# -------------------- ADMIN ISSUE MANAGEMENT --------------------
+@api_view(['GET'])
+@staff_member_required
+def admin_issues_list(request):
+    """Admin list all user issues"""
+    issues = UserIssue.objects.select_related('user').order_by('-created_at')
+    serializer = UserIssueSerializer(issues, many=True)
+    return Response({"issues": serializer.data})
+
+@api_view(['PATCH'])
+@staff_member_required
+def admin_resolve_issue(request, issue_id):
+    """Admin mark issue as resolved"""
+    try:
+        issue = UserIssue.objects.get(id=issue_id)
+        issue.status = "RESOLVED"
+        issue.resolved_at = timezone.now()
+        issue.save()
+        return Response({
+            "success": True,
+            "message": "Issue marked as resolved"
+        })
+    except UserIssue.DoesNotExist:
+        return Response({"error": "Issue not found"}, status=404)
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def admin_dashboard_main(request):
     try:
-        from core.models import Turf, Booking, Payment, Vendor
+        from core.models import Turf, Booking, Payment, Vendor, UserIssue
         from django.contrib.auth import get_user_model
         from django.db.models.functions import TruncDate
         from django.db.models import Count, Sum
@@ -866,6 +894,14 @@ def admin_dashboard_main(request):
         total_vendors = Vendor.objects.count()
         total_turfs = Turf.objects.count()
         total_bookings = Booking.objects.count()
+        
+        # ISSUES STATS
+        total_issues = UserIssue.objects.count()
+        pending_issues = UserIssue.objects.filter(status="PENDING").count()
+        recent_issues = UserIssue.objects.filter(status="PENDING").order_by('-created_at')[:5].values(
+            'id', 'title', 'name', 'email', 'created_at'
+        )
+        
         today = timezone.localdate()
         start = today - timezone.timedelta(days=6)
         
@@ -902,12 +938,19 @@ def admin_dashboard_main(request):
                 "vendors": total_vendors,
                 "turfs": total_turfs,
                 "bookings": total_bookings,
+                "issues": total_issues,
+                "pending_issues": pending_issues,
             },
             "today": {
                 "bookings": today_bookings,
                 "revenue": float(today_revenue_paise / 100),
                 "users": today_new_users,
                 "vendors": today_new_vendors,
+            },
+            "issues": {
+                "total": total_issues,
+                "pending": pending_issues,
+                "recent": list(recent_issues)
             },
             "weekly": weekly_data
         }
@@ -985,54 +1028,77 @@ def user_toggle_active(request, user_id: int):
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def turfs_list(request):
-    date_str = request.GET.get('date')
-    
-    # Filter: only show turfs from APPROVED vendors (or no vendor)
-    qs = Turf.objects.select_related("owner", "vendor").prefetch_related(
-        "banners", "gallery", "slot_items"
-    ).filter(
-        is_approved=True
-    ).exclude(
-        vendor__status="Inactive"  # Exclude turfs from inactive vendors
-    ).order_by("-id")
+    date_str = request.GET.get("date")
+
+    qs = (
+        Turf.objects.select_related("owner", "vendor")
+        .prefetch_related("banners", "gallery", "slot_items")
+        .filter(is_approved=True)
+        .exclude(vendor__status="Inactive")
+        .order_by("-id")
+    )
 
     data = []
+
     for t in qs:
+
+        # =========================
+        # ✅ NORMALIZE GAMES FIELD
+        # =========================
+        games_list = []
+
+        if t.games:
+            # Case 1: JSONField list
+            if isinstance(t.games, list):
+                games_list = t.games
+
+            # Case 2: Comma-separated string
+            elif isinstance(t.games, str):
+                games_list = [g.strip() for g in t.games.split(",") if g.strip()]
+
+            # Case 3: ManyToMany (if used)
+            elif hasattr(t.games, "all"):
+                games_list = [g.name for g in t.games.all()]
+
+        # =========================
+        # ✅ SLOTS LOGIC
+        # =========================
         available_slots = []
-        
-        # NEW SLOTS ✅
-        if hasattr(t, 'slot_items') and t.slot_items.exists():
+
+        if hasattr(t, "slot_items") and t.slot_items.exists():
             slots_qs = t.slot_items.filter(is_available=True)
-            
-            # Date filter (if date field added later)
+
             if date_str:
-                # slots_qs = slots_qs.filter(date=date_str)  # Add date field to Slot
-                pass
-                
+                pass  # future date filter
+
             for slot in slots_qs:
                 available_slots.append({
                     "id": slot.id,
                     "start_time": slot.start_time.strftime("%H:%M"),
                     "end_time": slot.end_time.strftime("%H:%M"),
                     "time_display": f"{slot.start_time.strftime('%I:%M %p')} - {slot.end_time.strftime('%I:%M %p')}",
-                    "price_display": f"₹{slot.price}",
                     "price": slot.price,
-                    "is_available": slot.is_available
+                    "price_display": f"₹{slot.price}",
+                    "is_available": slot.is_available,
                 })
         else:
-            # Legacy JSON fallback
             for slot in t.slots or []:
                 if not slot.get("is_booked", False):
+                    price = slot.get("price", t.price_per_hour)
+
                     available_slots.append({
                         "id": slot.get("id"),
                         "start_time": slot.get("start_time", ""),
                         "end_time": slot.get("end_time", ""),
                         "time_display": slot.get("slot_display", ""),
-                        "price": slot.get("price", t.price_per_hour),
-                        "price_display": f"₹{slot.get('price', t.price_per_hour)}",
-                        "is_available": True
+                        "price": price,
+                        "price_display": f"₹{price}",
+                        "is_available": True,
                     })
 
+        # =========================
+        # ✅ BUILD RESPONSE
+        # =========================
         data.append({
             "id": t.id,
             "name": t.name,
@@ -1041,32 +1107,32 @@ def turfs_list(request):
             "longitude": t.longitude,
             "price_per_hour": t.price_per_hour,
             "description": t.description or "",
-            "games": t.games or [],
+
+            # 🔥 CLEAN ARRAY → React-friendly
+            "games": games_list,
+
             "amenities": t.amenities or [],
             "features": t.features or [],
 
             "banner_images": [img.image.url for img in t.banners.all()],
             "gallery_images": [img.image.url for img in t.gallery.all()],
-            "slots": available_slots,  # ✅ Dynamic slots ready
+            "slots": available_slots,
 
-            # ✅ SAFE VENDOR ACCESS
             "vendor": {
-                "vendor_id": getattr(t.vendor, 'vendor_id', None) if t.vendor else None,
-                "venuename": getattr(t.vendor, 'venuename', None) if t.vendor else None,
+                "vendor_id": getattr(t.vendor, "vendor_id", None) if t.vendor else None,
+                "venuename": getattr(t.vendor, "venuename", None) if t.vendor else None,
             },
-            
-            # ✅ SAFE OWNER ACCESS
+
             "owner": {
                 "id": t.owner.id if t.owner else None,
                 "username": t.owner.name if t.owner else None,
                 "email": t.owner.email if t.owner else None,
             } if t.owner else {"id": None, "username": None, "email": None},
-            
+
             "is_approved": t.is_approved,
         })
 
     return Response({"results": data})
-
 @api_view(['GET'])
 def turf_detail(request, turf_id):
     """Single turf with all slots"""
@@ -1181,15 +1247,26 @@ def vendors_list(request):
     return JsonResponse({"results": []})
 
 
-@staff_member_required
-def vendor_approve(request, user_id: int):
-    return JsonResponse({"detail": "Vendor module not implemented in backend"}, status=501)
+@api_view(['PUT'])
+def vendor_approve(request, id):
+    try:
+        vendor = Vendor.objects.get(id=id)
+        vendor.status = "Approved"
+        vendor.save()
+        return Response({"message": "Vendor Approved"})
+    except Vendor.DoesNotExist:
+        return Response({"error": "Vendor not found"}, status=404)
 
 
-@staff_member_required
-def vendor_reject(request, user_id: int):
-    return JsonResponse({"detail": "Vendor module not implemented in backend"}, status=501)
-
+@api_view(['PUT'])
+def vendor_reject(request, id):
+    try:
+        vendor = Vendor.objects.get(id=id)
+        vendor.delete()
+        return Response({"message": "Vendor Rejected and Removed"})
+    except Vendor.DoesNotExist:
+        return Response({"error": "Vendor not found"}, status=404)
+        
 @staff_member_required
 def turfs_approve(request, turf_id):
     if request.method not in ("POST", "PATCH"):
@@ -1626,45 +1703,30 @@ def send_whatsapp(phone, message):
     except Exception as e:
         print("WhatsApp Error:", str(e))
 
-@api_view(['POST'])
-def create_vendor(request):
-    try:
-        data = request.data
+@csrf_exempt
+def vendor_create(request):
+    if request.method == "POST":
+
+        data = json.loads(request.body)
 
         vendor = Vendor.objects.create(
-            venuename=data.get("venuename"),
-            ownername=data.get("ownername"),
-            email=data.get("email"),
-            phone=data.get("phone"),
-            location=data.get("location"),
-            address=data.get("address"),
-            pincode=data.get("pincode"),
-            totalturf=int(data.get("totalturf")),
-            availablegames=data.get("availablegames", []),
-            status="Approved"
+            venuename=data["venuename"],
+            ownername=data["ownername"],
+            email=data["email"],
+            phone=data["phone"],
+            location=data["location"],
+            address=data["address"],
+            pincode=data["pincode"],
+            totalturf=data["totalturf"],
+            availablegames=data["availablegames"],
+            status="Pending"  # 🔥 waiting admin approval
         )
 
-        # ✅ Send WhatsApp Message
-        message = f"""
-Hello {vendor.ownername},
-
-Your Vendor account has been created successfully.
-
-Vendor ID: {vendor.vendor_id}
-Venue Name: {vendor.venuename}
-
-Thank you for joining our platform.
-"""
-
-        send_whatsapp(vendor.phone, message)
-
-        return Response({
-            "message": "Vendor Created",
-            "vendor_id": vendor.vendor_id
+        return JsonResponse({
+            "vendor_id": vendor.vendor_id,
+            "message": "Request submitted. Waiting for admin approval."
         })
-
-    except Exception as e:
-        return Response({"error": str(e)}, status=400)
+    
 # ------------add turf page laa vendor id kuduta name varnu------------------------------
 @api_view(['GET'])
 def get_vendor(request, vendor_id):
@@ -1701,6 +1763,7 @@ from django.forms.models import model_to_dict
 
 @api_view(['GET'])
 def vendor_list(request):
+
     vendors = Vendor.objects.all().order_by('-created_at')
 
     data = []
@@ -1717,6 +1780,27 @@ def vendor_list(request):
         })
 
     return Response(data)
+
+@api_view(['GET'])
+def vendor_requests(request):
+
+    vendors = Vendor.objects.all().order_by('-created_at')
+
+    data = []
+    for v in vendors:
+        data.append({
+            "id": v.id,
+            "vendor_id": v.vendor_id,
+            "venuename": v.venuename,
+            "ownername": v.ownername,
+            "phone": v.phone,
+            "location": v.location,
+            "totalturf": v.totalturf,
+            "status": v.status,
+        })
+
+    return Response(data)
+
 @api_view(['DELETE'])
 def delete_vendor(request, id):
     try:
@@ -2300,3 +2384,25 @@ def update_user_profile(request):
     except Exception as e:
         print("Profile update error:", str(e))
         return Response({"error": "Failed to update profile"}, status=500)
+@staff_member_required
+@csrf_exempt
+def admin_create_vendor(request):
+    if request.method == "POST":
+        data = json.loads(request.body)
+
+        vendor = Vendor.objects.create(
+            venuename=data["venuename"],
+            ownername=data["ownername"],
+            email=data["email"],
+            phone=data["phone"],
+            location=data["location"],
+            address=data["address"],
+            pincode=data["pincode"],
+            totalturf=data["totalturf"],
+            availablegames=data["availablegames"],
+            status="Approved"   # 🔥 auto approve
+        )
+
+        return JsonResponse({
+            "vendor_id": vendor.vendor_id
+        })

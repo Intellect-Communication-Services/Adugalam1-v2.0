@@ -7,11 +7,12 @@ from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
 )
+from .views import vendor_requests
 
 from core.views import (
     booking_detail,
     booking_summary,
-    create_vendor,
+    vendor_create,
     delete_vendor,
     get_vendor,
     location_list,
@@ -41,6 +42,7 @@ from core.views import (
     admin_login,
     admin_verify_otp,
     users_list,
+    vendor_requests,
     user_toggle_active,
     turfs_list,
     bookings_list,
@@ -68,6 +70,9 @@ from core.views import (
     reset_password,
     update_user_profile,
     update_vendor_by_code,
+    submit_issue,
+    admin_issues_list,
+    admin_resolve_issue,
 )
 
 urlpatterns = [
@@ -108,11 +113,10 @@ urlpatterns = [
     path("admin/verify-otp/", admin_verify_otp),
     path("admin/login/", admin_login),
     path("admin/dashboard/", views.admin_dashboard_main),
-    path("admin/dashboard/", views.admin_dashboard_main),
 
     path("admin/vendors/", vendors_list),
-    path("admin/vendors/<int:user_id>/approve/", vendor_approve),
-    path("admin/vendors/<int:user_id>/reject/", vendor_reject),
+    path("vendors/approve/<int:id>/", vendor_approve),
+    path("vendors/reject/<int:id>/", vendor_reject),
 
     path("admin/users/", users_list),
     path("admin/users/<int:user_id>/toggle-active/", user_toggle_active),
@@ -134,7 +138,8 @@ urlpatterns = [
 
     # -------- VENDOR MANAGEMENT --------
     path("vendors/", vendor_list),
-    path("vendors/create/", create_vendor),
+    path("vendors/pending/", vendor_requests),
+    path("vendors/create/", vendor_create),
     path("vendors/id/<int:id>/", delete_vendor),
     path("vendors/code/<str:vendor_id>/", get_vendor),
     path("vendors/update/<str:vendor_id>/", update_vendor_by_code),
@@ -164,7 +169,11 @@ urlpatterns = [
     path("booking/summary/<int:booking_id>/", booking_summary),
     path("booking/my-summary/", user_latest_booking),
     path("booking/my-bookings/", user_all_bookings),
-
+    
+    # -------- USER ISSUES / SUPPORT ---------
+    path("issues/submit/", submit_issue),
+    path("admin/issues/", admin_issues_list),
+    path("admin/issues/<int:issue_id>/resolve/", admin_resolve_issue),
 ]
 
 

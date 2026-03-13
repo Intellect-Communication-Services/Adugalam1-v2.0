@@ -204,8 +204,17 @@ class AdminTurfCreateSerializer(serializers.Serializer):
 
 
 from rest_framework import serializers
-from .models import Booking, Slot
+from .models import Booking, Slot, UserIssue
 from .serializers import SlotSerializer  # ✅ Your existing SlotSerializer import
+
+class UserIssueSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserIssue
+        fields = "__all__"
+    def create(self, validated_data):
+        """Auto-set resolved_at=None when creating"""
+        validated_data['resolved_at'] = None
+        return super().create(validated_data)
 
 class BookingDetailSerializer(serializers.ModelSerializer):
     turf_name = serializers.CharField(source='turf.name')

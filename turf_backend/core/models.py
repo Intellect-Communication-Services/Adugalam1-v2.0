@@ -184,13 +184,15 @@ class Vendor(models.Model):
 
     vendor_id = models.CharField(max_length=20, unique=True, blank=True)
     STATUS_CHOICES = (
-            ("Pending", "Pending"),
-            ("Rejected", "Rejected"),
-        ("Approved", "Approved"),
-    )
-
-    status = models.CharField(max_length=20, default="Approved")
-
+    ("Pending", "Pending"),
+    ("Rejected", "Rejected"),
+    ("Approved", "Approved"),
+)
+    status = models.CharField(
+    max_length=20,
+    choices=STATUS_CHOICES,
+    default="Pending"
+)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
@@ -479,3 +481,36 @@ class EmailOTP(models.Model):
         return timezone.now() > self.created_at + timezone.timedelta(minutes=5)
     def __str__(self):
         return f"{self.email}-{self.otp}"
+
+# -------------------- USER ISSUES / SUPPORT TICKETS --------------------
+class UserIssue(models.Model):
+    STATUS_CHOICES = (
+        ("PENDING", "Pending"),
+        ("RESOLVED", "Resolved"),
+        ("IN_PROGRESS", "In Progress"),
+    )
+    
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="issues",
+        null=True, blank=True
+    )
+    name = models.CharField(max_length=100)
+    email = models.EmailField()
+    phone = models.CharField(max_length=15)
+    
+    title = models.CharField(max_length=200)
+    description = models.TextField()
+    
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="PENDING"
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    
+    def __str__(self):
+        return f"{self.title} - {self.name}"

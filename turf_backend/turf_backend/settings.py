@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
 
+
     # Local apps
     'core',
 ]
@@ -136,7 +137,7 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
-AUTH_USER_MODEL = 'core.AppUser'   
+AUTH_USER_MODEL = 'core.AppUser'
 
 AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
@@ -207,8 +208,3 @@ RAZORPAY_KEY_ID = "rzp_live_S2qvjT5ZF9ktdQ"
 RAZORPAY_KEY_SECRET = "dewrEebNJvz5tHCtozV01syN"
 
 # VITE_API_BASE_URL=http://127.0.0.1:8000
-
-
-#---- whatsapp goinfinity ------------
-GOINFINITY_TOKEN = "XXXXXXXXXjpvcGVuU2VzYW1luyywe687RYlOXXXXXXXXX"
-GOINFINITY_WHATSAPP_URL = "https://api.goinfinity.ai/api/v1/whatsapp/send"

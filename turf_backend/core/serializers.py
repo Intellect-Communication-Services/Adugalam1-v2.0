@@ -186,6 +186,12 @@ class AdminTurfCreateSerializer(serializers.Serializer):
     vendorId = serializers.CharField()
     name = serializers.CharField()
     location = serializers.CharField()
+    latitude = serializers.DecimalField(
+        max_digits=9, decimal_places=6, required=False, allow_null=True
+    )
+    longitude = serializers.DecimalField(
+        max_digits=9, decimal_places=6, required=False, allow_null=True
+    )
     price = serializers.IntegerField()
 
     games = serializers.ListField(child=serializers.CharField(), required=False)
@@ -232,3 +238,46 @@ class BookingDetailSerializer(serializers.ModelSerializer):
             'advance_amount', 
             'service_charge'
         ]
+
+class PaymentTransactionSerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source='user.name')
+    user_id = serializers.CharField(source='user.id')
+    booking = BookingDetailSerializer()
+    turf_name = serializers.CharField(source='booking.turf.name')
+    vendor_name = serializers.SerializerMethodField()
+    vendor_id = serializers.SerializerMethodField()
+    game_name = serializers.CharField(source='booking.game.game_name')
+    booking_date = serializers.DateField(source='booking.date')
+
+    class Meta:
+        model = Payment
+        fields = [
+            'id', 'razorpay_payment_id', 'amount', 'status', 'created_at',
+            'user_id', 'user_name', 'booking', 'turf_name', 'vendor_name', 'vendor_id', 
+            'game_name', 'booking_date'
+        ]
+
+    def get_vendor_name(self, obj):
+        vendor = obj.booking.turf.vendor
+        return vendor.venuename if vendor else None
+
+    def get_vendor_id(self, obj):
+        vendor = obj.booking.turf.vendor
+        return vendor.vendor_id if vendor else None
+
+class VendorEarningsSerializer(serializers.Serializer):
+    vendor_id = serializers.CharField()
+    vendor_name = serializers.CharField()
+    total_amount = serializers.DecimalField(max_digits=12, decimal_places=2)
+    txn_count = serializers.IntegerField()
+
+# ------------------Banner Serializer------------------
+from django.contrib.auth.models import User
+from rest_framework import serializers
+
+from .models import Turf, TurfBanner, TurfGallery, Ground, Slot, Booking, Payment, AdminUser, HomepageBanner
+
+class HomepageBannerSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = HomepageBanner
+        fields = "__all__"

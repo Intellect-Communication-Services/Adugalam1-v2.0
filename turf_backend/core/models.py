@@ -71,6 +71,18 @@ class Turf(models.Model):
     )
 
     is_approved = models.BooleanField(default=False)
+    is_maintenance = models.BooleanField(default=False)
+    ROLE_CHOICES = (
+        ("vendor", "Vendor"),
+        ("admin", "Admin"),
+    )
+    role = models.CharField(
+        max_length=20,
+        choices=ROLE_CHOICES,
+        default="admin",
+        blank=True,
+        null=True
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     # AUTO SLOT ID FOR JSON (legacy)
@@ -193,6 +205,7 @@ class Vendor(models.Model):
     choices=STATUS_CHOICES,
     default="Pending"
 )
+    vendor_password = models.CharField(max_length=255, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
@@ -267,6 +280,7 @@ class Booking(models.Model):
         ("PENDING", "Pending"),
         ("CONFIRMED", "Confirmed"),
         ("CANCELLED", "Cancelled"),
+        ("REFUNDED", "Refunded"),
     )
 
     # ================= USER =================
@@ -439,6 +453,7 @@ class UserManager(BaseUserManager):
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
         extra_fields.setdefault('is_active', True)
+        extra_fields.setdefault('role', 'ADMIN')
 
         return self.create_user(email, password, **extra_fields)
 
@@ -461,6 +476,11 @@ class AppUser(AbstractBaseUser, PermissionsMixin):
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)   # Django admin panel
     is_superuser = models.BooleanField(default=False)
+
+    # Account retirement (soft-delete request)
+    retire = models.IntegerField(default=0)  # 0 = active, 1 = delete requested
+    retire_reason = models.TextField(blank=True, null=True)
+    retire_requested_at = models.DateTimeField(blank=True, null=True)
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['name']
@@ -514,3 +534,42 @@ class UserIssue(models.Model):
     
     def __str__(self):
         return f"{self.title} - {self.name}"
+    
+# -------------------- CONTACT MESSAGES --------------------
+class ContactMessage(models.Model):
+    name = models.CharField(max_length=255)
+    email = models.EmailField()
+    phone = models.CharField(max_length=20, blank=True, null=True)
+    subject = models.CharField(max_length=255)
+    message = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+# -------------------- HOMEPAGE BANNERS --------------------
+class HomepageBanner(models.Model):
+    title = models.CharField(max_length=200, blank=True)
+    text = models.TextField(blank=True)
+    button_text = models.CharField(max_length=50, default="Book Now")
+    image = models.ImageField(upload_to="banners/")
+    link_path = models.CharField(max_length=200, default="/Bookhome")
+    priority = models.IntegerField(default=1, help_text="Lower number = higher priority")
+    category = models.CharField(
+        max_length=200, 
+        default="all", 
+        help_text="Page path (e.g. '/play') or 'all' for all pages"
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['priority', '-created_at']
+
+    def __str__(self):
+        return self.title or f"Banner {self.id}"
+    
+# ---------------------------hit-------------------------
+class LoveAdugalam(models.Model):
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='love_hit')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'Love from {self.user.email} username {self.user.name}'

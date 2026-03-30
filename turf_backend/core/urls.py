@@ -7,7 +7,7 @@ from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
 )
-from .views import vendor_requests
+from .views import admin_banner_detail, admin_manage_banners, delete_user, get_hit_stats, get_users, list_homepage_banners, record_hit, update_user, user_notifications, vendor_my_turfs, vendor_profile, vendor_requests, user_retire_request, admin_retire_requests, admin_retire_action, restore_account
 
 from core.views import (
     booking_detail,
@@ -35,12 +35,12 @@ from core.views import (
     nearby_turfs,
     add_to_cart,
     confirm_booking,
+    submit_contact_message,
+    list_contact_messages,
     create_payment_order,
     verify_payment,
     turf_games,
-    admin_send_otp,
     admin_login,
-    admin_verify_otp,
     users_list,
     vendor_requests,
     user_toggle_active,
@@ -66,13 +66,24 @@ from core.views import (
     admin_add_turf,
     update_turf_priority,
     vendor_set_peak_hour,
+    vendor_set_bulk_peak_hours,
     vendor_delete_peak_hour,
     reset_password,
+    change_password,
     update_user_profile,
     update_vendor_by_code,
     submit_issue,
     admin_issues_list,
     admin_resolve_issue,
+    user_notifications,
+    admin_forgot_password,
+    admin_reset_password,
+    vendor_turf_detail,
+    vendor_edit_turf,
+    vendor_toggle_maintenance,
+    admin_get_vendor_turfs,
+    admin_set_bulk_peak_hours,
+    admin_edit_turf,
 )
 
 urlpatterns = [
@@ -85,6 +96,7 @@ urlpatterns = [
     path("send-reset-otp/", send_reset_otp),
     path("home/", home),
     path("reset-password/", reset_password),
+    path("user/change-password/", change_password),
     path("user/profile/", update_user_profile),
     path("token/", TokenObtainPairView.as_view()),
     path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
@@ -109,9 +121,9 @@ urlpatterns = [
     path("payment/verify/", verify_payment),
 
     # -------- ADMIN --------
-    path("admin/send-otp/", admin_send_otp),
-    path("admin/verify-otp/", admin_verify_otp),
     path("admin/login/", admin_login),
+    path("admin/forgot-password/send-otp/", admin_forgot_password),
+    path("admin/forgot-password/reset/", admin_reset_password),
     path("admin/dashboard/", views.admin_dashboard_main),
 
     path("admin/vendors/", vendors_list),
@@ -126,6 +138,7 @@ urlpatterns = [
     
     path("admin/turfs/create/", admin_add_turf),
     path("admin/turfs/<int:turf_id>/priority/",update_turf_priority),
+    path("admin/turfs/<int:turf_id>/", admin_edit_turf),
 
 
     path("admin/turfs/<int:turf_id>/approve/", turfs_approve),
@@ -156,6 +169,7 @@ urlpatterns = [
     path("vendor/slots/", vendor_list_slots),
     path("vendor/slots/create/", vendor_create_slots),
     path("vendor/set-peak-hour/", vendor_set_peak_hour),
+    path("vendor/set-bulk-peak-hours/", vendor_set_bulk_peak_hours),
     path("vendor/delete-peak/<int:peak_id>/", vendor_delete_peak_hour),
     path("vendor/discounts/", vendor_list_discounts),
     path("vendor/discounts/create/", vendor_create_discount),
@@ -174,6 +188,45 @@ urlpatterns = [
     path("issues/submit/", submit_issue),
     path("admin/issues/", admin_issues_list),
     path("admin/issues/<int:issue_id>/resolve/", admin_resolve_issue),
+
+    #-------------contact---------------------
+    path("contact/submit/", submit_contact_message),
+    path("contact/list/", list_contact_messages),
+
+    # -------------Bannner Management----------------
+    path("banners/", list_homepage_banners),
+    path("admin/banners/", admin_manage_banners),
+    path("admin/banners/<int:pk>/", admin_banner_detail),
+
+    # ----------------hit----------------------
+    # -------- LOVE ADUGALAM --------
+    path("hit-stats/", get_hit_stats),
+    path("record-hit/", record_hit),
+
+    # ------------usermanagemnet in admin panel----------------
+    path("users/", get_users),
+    path("users/<uuid:user_id>/", update_user),
+    path("users/<uuid:user_id>/delete/", delete_user),
+    # ---- User Account Retire ----
+    path("user/retire-request/", user_retire_request),
+    path("user/restore-account/", restore_account),
+    path("admin/retire-requests/", admin_retire_requests),
+    path("admin/retire-requests/<uuid:user_id>/action/", admin_retire_action),
+    #------- admin payment show---------
+    path("payments/report/", views.payments_report),
+    #-------- refund---------
+    path("admin/bookings/", views.bookings_list),
+
+    path("admin/bookings/<int:booking_id>/",views.admin_refund_booking),
+    path("notifications/", user_notifications),
+#---- full vendor code -----------
+    path("vendor/profile/", vendor_profile),
+    path("vendor/my-turfs/", vendor_my_turfs),
+    path("vendor/turfs/<int:turf_id>/", vendor_turf_detail),
+    path("vendor/turfs/<int:turf_id>/update/", vendor_edit_turf),
+    path("vendor/turfs/<int:turf_id>/maintenance/", vendor_toggle_maintenance),
+    path("admin/vendor-turfs/<str:vendor_id>/", admin_get_vendor_turfs),
+    path("admin/set-peak-hours/", admin_set_bulk_peak_hours),
 ]
 
 

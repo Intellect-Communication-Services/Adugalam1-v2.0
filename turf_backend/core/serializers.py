@@ -281,3 +281,13 @@ class HomepageBannerSerializer(serializers.ModelSerializer):
     class Meta:
         model = HomepageBanner
         fields = "__all__"
+
+# ------------------Favorite Turf Serializer------------------
+from .models import FavoriteTurf
+
+class FavoriteTurfSerializer(serializers.ModelSerializer):
+    turf = TurfSerializer(read_only=True)
+
+    class Meta:
+        model = FavoriteTurf
+        fields = ["id", "user", "turf", "created_at"]

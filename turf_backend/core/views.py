@@ -81,8 +81,10 @@ def send_email_otp_view(request):
     # Check if account is pending deletion (retire=1)
     if AppUser.objects.filter(email=email, retire=1).exists():
         return Response(
-            {"error": "Your account deletion request is pending admin approval. Please contact support."},
-            status=400
+            {
+                "error": "Your account deletion request is pending admin approval. Please contact support."
+            },
+            status=400,
         )
 
     otp = generate_otp()
@@ -94,7 +96,6 @@ def send_email_otp_view(request):
     send_email_otp(email, otp)
 
     return Response({"message": "OTP sent to email"})
-
 
 
 #  VERIFY OTP
@@ -179,8 +180,10 @@ def login_view(request):
     # Block login if account deletion is pending
     if getattr(user, "retire", 0) == 1:
         return Response(
-            {"error": "Your account deletion request is pending admin approval. Contact support if this was a mistake."},
-            status=403
+            {
+                "error": "Your account deletion request is pending admin approval. Contact support if this was a mistake."
+            },
+            status=403,
         )
 
     refresh = RefreshToken.for_user(user)
@@ -197,7 +200,6 @@ def login_view(request):
             },
         }
     )
-
 
 
 @api_view(["POST"])
@@ -224,7 +226,7 @@ def list_turfs(request):
     qs = (
         Turf.objects.select_related("owner", "vendor")
         .prefetch_related("banners", "gallery", "slot_items", "game_items")
-        .filter(is_approved=True, is_maintenance=False)
+        .filter(is_approved=True, is_maintenance=False, retire=0)
     )
 
     if game:
@@ -315,7 +317,7 @@ def list_turfs(request):
 def popular_turfs(request):
     game = request.GET.get("game")
 
-    qs = Turf.objects.filter(is_approved=True, is_popular=True, is_maintenance=False)
+    qs = Turf.objects.filter(is_approved=True, is_popular=True, is_maintenance=False, retire=0)
 
     if game:
         qs = qs.filter(
@@ -356,7 +358,7 @@ from django.db import models
 def turf_details(request, turf_id):
 
     try:
-        turf = Turf.objects.get(id=turf_id)
+        turf = Turf.objects.get(id=turf_id, retire=0)
     except Turf.DoesNotExist:
         return Response({"error": "Turf not found"}, status=404)
 
@@ -476,8 +478,15 @@ def confirm_booking(request):
                 {"error": "Some slots are already booked for this date"}, status=400
             )
 
-        # ✅ 1️⃣ ORIGINAL AMOUNT
-        original_amount = sum(slot.price for slot in available_slots)
+        # ✅ 1️⃣ ORIGINAL AMOUNT (Respect Peak Hours)
+        original_amount = Decimal("0.00")
+        for s in available_slots:
+            peak = PeakHour.objects.filter(turf_id=turf_id, slot=s, date=date).first()
+
+            if peak:
+                original_amount += Decimal(str(peak.peak_price))
+            else:
+                original_amount += Decimal(str(s.price))
 
         # ✅ 2️⃣ 30% ADVANCE
         advance_amount = Decimal(original_amount) * Decimal("0.30")
@@ -491,6 +500,9 @@ def confirm_booking(request):
         # 🔥 CREATE PENDING BOOKING (slots stay available)
         booking = Booking.objects.create(
             user=request.user,
+            user_name=request.user.name,
+            user_email=request.user.email,
+            user_mobile=request.user.mobile,
             turf_id=turf_id,
             game_id=game_id,
             date=date,
@@ -514,6 +526,7 @@ def confirm_booking(request):
         },
         status=201,
     )
+
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
@@ -652,7 +665,7 @@ def nearby_turfs(request):
     lat = float(lat)
     lng = float(lng)
 
-    turfs = Turf.objects.filter(is_approved=True)
+    turfs = Turf.objects.filter(is_approved=True, retire=0)
 
     results = []
     for turf in turfs:
@@ -1094,7 +1107,7 @@ def user_toggle_active(request, user_id: int):
 
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])  
+@permission_classes([IsAuthenticated])
 def turfs_list(request):
     date_str = request.GET.get("date")
 
@@ -1102,7 +1115,7 @@ def turfs_list(request):
     qs = (
         Turf.objects.select_related("owner", "vendor")
         .prefetch_related("banners", "gallery", "slot_items", "game_items")
-        .filter(is_approved=True)
+        .filter(is_approved=True, retire=0)
         .exclude(
             vendor__status="Inactive"  # Exclude turfs from inactive vendors
         )
@@ -1164,11 +1177,12 @@ def turfs_list(request):
                 "features": t.features or [],
                 "banner_images": [img.image.url for img in t.banners.all()],
                 "gallery_images": [img.image.url for img in t.gallery.all()],
-                "slots": available_slots, 
-                "vendor_code": getattr(t.vendor, "vendor_id", None) if t.vendor else None,
-                 # ✅ Dynamic slots ready
+                "slots": available_slots,
+                "vendor_code": getattr(t.vendor, "vendor_id", None)
+                if t.vendor
+                else None,
+                # ✅ Dynamic slots ready
                 # ✅ SAFE VENDOR ACCESS
-
                 "vendor": {
                     "vendor_id": getattr(t.vendor, "vendor_id", None)
                     if t.vendor
@@ -1242,12 +1256,15 @@ def bookings_list(request):
         data.append(
             {
                 "id": b.id,
+                "player_name": b.user_name or (b.user.name if b.user else "-") or "-",
                 "status": b.status,
                 "created_at": b.created_at,
                 "user": {
-                    "id": b.user.id,
-                    "username": b.user.name,  # ✅ FIXED
-                    "email": b.user.email,
+                    "id": b.user.id if b.user else None,
+                    "username": b.user_name if b.user_name else (b.user.name if b.user else "-"),
+                    "name": b.user_name if b.user_name else (b.user.name if b.user else "-"),
+                    "email": b.user_email if b.user_email else (b.user.email if b.user else "-"),
+                    "mobile": b.user_mobile if b.user_mobile else (b.user.mobile if b.user else "-"),
                 },
                 "turf": {
                     "id": b.turf.id,
@@ -1435,8 +1452,12 @@ def vendor_dashboard(request):
     if not _ensure_vendor(request.user):
         return Response({"detail": "Unauthorized"}, status=401)
 
-    owner = request.user
-    owned_turfs = Turf.objects.filter(owner=owner)
+    try:
+        vendor = Vendor.objects.get(email=request.user.email)
+        owned_turfs = Turf.objects.filter(vendor=vendor)
+    except Vendor.DoesNotExist:
+        owned_turfs = Turf.objects.filter(owner=request.user)
+
     turf_ids = list(owned_turfs.values_list("id", flat=True))
 
     # Bookings for owned turfs
@@ -1483,7 +1504,11 @@ def vendor_dashboard(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def vendor_list_turfs(request):
-    turfs = Turf.objects.filter(owner=request.user)
+    try:
+        vendor = Vendor.objects.get(email=request.user.email)
+        turfs = Turf.objects.filter(vendor=vendor, retire=0)
+    except Vendor.DoesNotExist:
+        turfs = Turf.objects.filter(owner=request.user, retire=0)
     return Response(TurfSerializer(turfs, many=True).data)
 
 
@@ -1628,7 +1653,12 @@ def calculate_distance(lat1, lon1, lat2, lon2):
 @permission_classes([IsAuthenticated])
 def vendor_booking_list(request):
     """Return bookings belonging to vendor-owned turfs."""
-    turfs = Turf.objects.filter(owner=request.user)
+    try:
+        vendor = Vendor.objects.get(email=request.user.email)
+        turfs = Turf.objects.filter(vendor=vendor)
+    except Vendor.DoesNotExist:
+        turfs = Turf.objects.filter(owner=request.user)
+
     turf_ids = list(turfs.values_list("id", flat=True))
     qs = (
         Booking.objects.select_related("user", "turf", "game")
@@ -1648,22 +1678,29 @@ def vendor_booking_list(request):
         payment_status = "Pending"
         try:
             if b.payment:
-                payment_status = "Paid" if b.payment.status == "SUCCESS" else b.payment.status.capitalize()
+                payment_status = (
+                    "Paid"
+                    if b.payment.status == "SUCCESS"
+                    else b.payment.status.capitalize()
+                )
         except Exception:
             pass
 
-        data.append({
-            "id": f"#BK{b.id}",
-            "raw_id": b.id,
-            "player": b.user.name if b.user else "-",
-            "turf": b.turf.name if b.turf else "-",
-            "game": b.game.game_name if hasattr(b, "game") and b.game else "-",
-            "date": b.date.strftime("%d-%m-%Y") if b.date else "-",
-            "time": time_str,
-            "payment": payment_status,
-            "refund": "Refunded" if b.status == "REFUNDED" else "-",
-            "status": b.status.capitalize() if b.status else "Pending"
-        })
+        data.append(
+            {
+                "id": f"#BK{b.id}",
+                "raw_id": b.id,
+                "player_name": b.user_name or (b.user.name if b.user else "-") or "-",
+                "player": b.user_name or (b.user.name if b.user else "-") or "-",
+                "turf": b.turf.name if b.turf else "-",
+                "game": b.game.game_name if hasattr(b, "game") and b.game else "-",
+                "date": b.date.strftime("%d-%m-%Y") if b.date else "-",
+                "time": time_str,
+                "payment": payment_status,
+                "refund": "Refunded" if b.status == "REFUNDED" else "-",
+                "status": b.status.capitalize() if b.status else "Pending",
+            }
+        )
 
     return Response(data)
 
@@ -2106,7 +2143,8 @@ def admin_add_turf(request):
             turf=turf,
             start_time=start_time,
             end_time=end_time,
-            price=s["price"],
+            price=s.get("price")
+            or turf.price_per_hour,  # ⭐ Inherit turf price if slot price is 0/missing
             is_available=True,
         )
 
@@ -2141,7 +2179,7 @@ def update_turf_priority(request, turf_id):
         turf = Turf.objects.get(id=turf_id)
     except Turf.DoesNotExist:
         return Response({"error": "Turf not found"}, status=404)
-
+    
     turf.is_popular = request.data.get("is_popular", turf.is_popular)
     turf.priority = request.data.get("priority", turf.priority)
 
@@ -2149,7 +2187,8 @@ def update_turf_priority(request, turf_id):
 
     return Response({"message": "Priority updated"})
 
-@api_view(["GET", "PATCH"])
+
+@api_view(["GET", "PATCH", "DELETE"])
 @permission_classes([IsAuthenticated])
 @parser_classes([MultiPartParser, FormParser])
 def admin_edit_turf(request, turf_id):
@@ -2157,6 +2196,11 @@ def admin_edit_turf(request, turf_id):
         turf = Turf.objects.get(id=turf_id)
     except Turf.DoesNotExist:
         return Response({"error": "Turf not found"}, status=404)
+    if request.method == "DELETE":
+        turf.retire = 1
+        turf.save()
+        return Response({"success": True, "message": "Turf retired successfully"})
+
     if request.method == "GET":
         data = {
             "id": turf.id,
@@ -2167,7 +2211,8 @@ def admin_edit_turf(request, turf_id):
             "price_per_hour": turf.price_per_hour,
             "is_popular": turf.is_popular,
             "priority": turf.priority,
-            "vendor_code": turf.vendor_code or (turf.vendor.vendor_id if turf.vendor else ""),
+            "vendor_code": turf.vendor_code
+            or (turf.vendor.vendor_id if turf.vendor else ""),
             "games": [g.game_name for g in turf.game_items.all()],
             "banner_images": [img.image.url for img in turf.banners.all()],
             "gallery_images": [img.image.url for img in turf.gallery.all()],
@@ -2176,23 +2221,28 @@ def admin_edit_turf(request, turf_id):
     if request.method == "PATCH":
         turf.name = request.data.get("name", turf.name)
         turf.location = request.data.get("location", turf.location)
-        
+
         if "latitude" in request.data:
             lat = request.data.get("latitude")
             turf.latitude = float(lat) if lat else None
-            
+
         if "longitude" in request.data:
             lng = request.data.get("longitude")
             turf.longitude = float(lng) if lng else None
         if "price_per_hour" in request.data:
-            turf.price_per_hour = request.data.get("price_per_hour")
-        
+            new_price = int(request.data.get("price_per_hour"))
+            turf.price_per_hour = new_price
+
+            # 🔥 SYNC: Update associated slots and existing games to match the new price
+            Slot.objects.filter(turf=turf).update(price=new_price)
+            Game.objects.filter(turf=turf).update(price=new_price)
+
         is_popular = request.data.get("is_popular")
         if is_popular is not None:
-            turf.is_popular = str(is_popular).lower() == 'true'
+            turf.is_popular = str(is_popular).lower() == "true"
         if "priority" in request.data:
             turf.priority = request.data.get("priority", turf.priority)
-            
+
         turf.save()
         games_raw = request.data.get("games")
         if games_raw is not None:
@@ -2203,14 +2253,16 @@ def admin_edit_turf(request, turf_id):
                     games_list = [g.strip() for g in games_raw.split(",") if g.strip()]
             else:
                 games_list = games_raw
-            
+
             turf.games = games_list
-            turf.save() # Save the games JSON field
-            
+            turf.save()  # Save the games JSON field
+
             # Update the related game_items table
             turf.game_items.all().delete()
             for game_name in games_list:
-                Game.objects.create(turf=turf, game_name=game_name, price=turf.price_per_hour)
+                Game.objects.create(
+                    turf=turf, game_name=game_name, price=turf.price_per_hour
+                )
         new_banners = request.FILES.getlist("banner_images")
         if new_banners:
             turf.banners.all().delete()
@@ -2222,6 +2274,7 @@ def admin_edit_turf(request, turf_id):
             for img in new_gallery:
                 TurfGallery.objects.create(turf=turf, image=img)
         return Response({"success": True, "message": "Turf updated successfully"})
+
 
 @api_view(["POST"])
 def book_slot(request):
@@ -2293,8 +2346,13 @@ def turf_slots(request):
 
     data = []
 
+    # Fetch turf to get base price fallback if needed
+    turf = Turf.objects.filter(id=turf_id).first()
+    base_price = turf.price_per_hour if turf else 0
+
     for s in slots:
-        price = s.price
+        # ⭐ Fallback to turf's base price if individual slot price is 0
+        price = s.price if s.price > 0 else base_price
 
         # ⭐ PEAK PRICE CHECK
         if selected_date:
@@ -2338,11 +2396,19 @@ def vendor_set_peak_hour(request):
         return Response({"error": "All fields required"}, status=400)
 
     try:
-        turf = Turf.objects.get(id=turf_id, owner=request.user)
+        try:
+            vendor = Vendor.objects.get(email=request.user.email)
+            turf = Turf.objects.get(id=turf_id, vendor=vendor)
+        except Vendor.DoesNotExist:
+            turf = Turf.objects.get(id=turf_id, owner=request.user)
+
         slot = Slot.objects.get(id=slot_id, turf=turf)
         game = Game.objects.get(id=game_id, turf=turf)
     except:
-        return Response({"error": "Invalid turf/game/slot"}, status=400)
+        return Response(
+            {"error": "Invalid turf/game/slot or you do not have permission"},
+            status=400,
+        )
 
     peak, created = PeakHour.objects.update_or_create(
         turf=turf,
@@ -2367,11 +2433,18 @@ def vendor_set_peak_hour(request):
 def vendor_delete_peak_hour(request, peak_id):
 
     try:
-        peak = PeakHour.objects.get(id=peak_id, turf__owner=request.user)
+        try:
+            vendor = Vendor.objects.get(email=request.user.email)
+            peak = PeakHour.objects.get(id=peak_id, turf__vendor=vendor)
+        except Vendor.DoesNotExist:
+            peak = PeakHour.objects.get(id=peak_id, turf__owner=request.user)
+
         peak.delete()
         return Response({"success": True})
     except PeakHour.DoesNotExist:
-        return Response({"error": "Not found"}, status=404)
+        return Response(
+            {"error": "Not found or you do not have permission"}, status=404
+        )
 
 
 # ----------------------location--------------------------------------------
@@ -2600,18 +2673,20 @@ def update_user_profile(request):
 
     # ---- GET: return profile ----
     if request.method == "GET":
-        return Response({
-            "id": str(user.id),
-            "name": user.name,
-            "email": user.email,
-            "mobile": user.mobile,
-        })
+        return Response(
+            {
+                "id": str(user.id),
+                "name": user.name,
+                "email": user.email,
+                "mobile": user.mobile,
+            }
+        )
 
     # ---- PUT: update profile ----
     try:
-        name   = request.data.get("name", "").strip()
+        name = request.data.get("name", "").strip()
         mobile = request.data.get("mobile", "").strip()
-        email  = request.data.get("email", "").strip()
+        email = request.data.get("email", "").strip()
 
         email_changed = False
 
@@ -2624,7 +2699,10 @@ def update_user_profile(request):
         # Email update — check uniqueness first
         if email and email != user.email:
             if AppUser.objects.filter(email=email).exclude(id=user.id).exists():
-                return Response({"error": "This email is already in use by another account."}, status=400)
+                return Response(
+                    {"error": "This email is already in use by another account."},
+                    status=400,
+                )
             user.email = email
             email_changed = True
 
@@ -2632,27 +2710,27 @@ def update_user_profile(request):
 
         # Issue fresh tokens if email changed (old token's subject is now stale)
         refresh = RefreshToken.for_user(user)
-        new_access  = str(refresh.access_token)
+        new_access = str(refresh.access_token)
         new_refresh = str(refresh)
 
-        return Response({
-            "success": True,
-            "email_changed": email_changed,
-            "access": new_access,
-            "refresh": new_refresh,
-            "user": {
-                "id": str(user.id),
-                "name": user.name,
-                "email": user.email,
-                "mobile": user.mobile,
-            },
-        })
+        return Response(
+            {
+                "success": True,
+                "email_changed": email_changed,
+                "access": new_access,
+                "refresh": new_refresh,
+                "user": {
+                    "id": str(user.id),
+                    "name": user.name,
+                    "email": user.email,
+                    "mobile": user.mobile,
+                },
+            }
+        )
 
     except Exception as e:
         print("Profile update error:", str(e))
         return Response({"error": "Failed to update profile"}, status=500)
-
-
 
 
 @staff_member_required
@@ -2911,7 +2989,9 @@ def restore_account(request):
     try:
         user = AppUser.objects.get(email=email, retire=1)
     except AppUser.DoesNotExist:
-        return Response({"error": "No pending deletion request found for this email."}, status=404)
+        return Response(
+            {"error": "No pending deletion request found for this email."}, status=404
+        )
 
     user.retire = 0
     user.retire_reason = None
@@ -2919,8 +2999,6 @@ def restore_account(request):
     user.save()
 
     return Response({"message": "Account restored successfully. You can now log in."})
-
-
 
 
 # ---- ADMIN: LIST RETIRE REQUESTS ----
@@ -2934,15 +3012,17 @@ def admin_retire_requests(request):
     users = AppUser.objects.filter(retire=1).order_by("-retire_requested_at")
     data = []
     for u in users:
-        data.append({
-            "id": str(u.id),
-            "name": u.name,
-            "email": u.email,
-            "mobile": u.mobile,
-            "retire_reason": u.retire_reason or "",
-            "retire_requested_at": u.retire_requested_at,
-            "is_active": u.is_active,
-        })
+        data.append(
+            {
+                "id": str(u.id),
+                "name": u.name,
+                "email": u.email,
+                "mobile": u.mobile,
+                "retire_reason": u.retire_reason or "",
+                "retire_requested_at": u.retire_requested_at,
+                "is_active": u.is_active,
+            }
+        )
     return Response(data)
 
 
@@ -2976,7 +3056,9 @@ def admin_retire_action(request, user_id):
         #    retire naturally becomes 0 since the record is gone
         #    → user can sign up fresh with same email as a new account
         user.delete()
-        return Response({"message": f"Account deleted. Notification email sent to {user_email}."})
+        return Response(
+            {"message": f"Account deleted. Notification email sent to {user_email}."}
+        )
 
     elif action == "reject":
         # 1. Reset retire to 0 (account fully restored, like a normal active user)
@@ -2991,12 +3073,16 @@ def admin_retire_action(request, user_id):
         except Exception as e:
             print(f"[Retire Reject Email Error] {e}")
 
-        return Response({"message": f"Request rejected. Account restored. Notification email sent to {user_email}."})
+        return Response(
+            {
+                "message": f"Request rejected. Account restored. Notification email sent to {user_email}."
+            }
+        )
 
     else:
-        return Response({"error": "Invalid action. Use 'approve' or 'reject'."}, status=400)
-
-
+        return Response(
+            {"error": "Invalid action. Use 'approve' or 'reject'."}, status=400
+        )
 
 
 # -------------- payment details admin shows-------
@@ -3510,7 +3596,11 @@ def vendor_edit_turf(request, turf_id):
     if "longitude" in data:
         turf.longitude = data["longitude"] or None
     if "price" in data:
-        turf.price_per_hour = int(data["price"])
+        new_price = int(data["price"])
+        turf.price_per_hour = new_price
+        # Update associated slots and games to maintain consistency
+        Slot.objects.filter(turf=turf).update(price=new_price)
+        Game.objects.filter(turf=turf).update(price=new_price)
     if "description" in data:
         turf.description = data["description"]
     if "games" in data:
@@ -3645,7 +3735,12 @@ def vendor_set_bulk_peak_hours(request):
     configs = request.data.get("configs", [])
 
     try:
-        turf = Turf.objects.get(id=turf_id, owner=request.user)
+        try:
+            vendor = Vendor.objects.get(email=request.user.email)
+            turf = Turf.objects.get(id=turf_id, vendor=vendor)
+        except Vendor.DoesNotExist:
+            turf = Turf.objects.get(id=turf_id, owner=request.user)
+
         game = Game.objects.filter(turf=turf).first()
 
         for conf in configs:
@@ -3686,7 +3781,9 @@ def vendor_set_bulk_peak_hours(request):
 
         return Response({"success": True})
     except Turf.DoesNotExist:
-        return Response({"error": "Turf not found or you do not have permission."}, status=403)
+        return Response(
+            {"error": "Turf not found or you do not have permission."}, status=403
+        )
     except Exception as e:
         return Response({"error": str(e)}, status=500)
 
@@ -3714,3 +3811,39 @@ def admin_get_vendor_turfs(request, vendor_id):
         return Response(data)
     except Vendor.DoesNotExist:
         return Response({"error": "Vendor not found."}, status=404)
+
+
+# -------------------- FAVORITE TURF VIEWS --------------------
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from django.shortcuts import get_object_or_404
+from .models import FavoriteTurf, Turf
+from .serializers import FavoriteTurfSerializer
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def toggle_favorite(request, turf_id):
+    user = request.user
+    turf = get_object_or_404(Turf, id=turf_id)
+
+    favorite = FavoriteTurf.objects.filter(user=user, turf=turf).first()
+
+    if favorite:
+        favorite.delete()
+        return Response({"status": "removed"})
+    else:
+        FavoriteTurf.objects.create(user=user, turf=turf)
+        return Response({"status": "added"})
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def my_favorite_turfs(request):
+    user = request.user
+    favorites = FavoriteTurf.objects.filter(user=user).select_related("turf")
+    serializer = FavoriteTurfSerializer(
+        favorites, many=True, context={"request": request}
+    )
+    return Response(serializer.data)

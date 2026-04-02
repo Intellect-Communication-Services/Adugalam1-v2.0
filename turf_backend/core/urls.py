@@ -84,6 +84,8 @@ from core.views import (
     admin_get_vendor_turfs,
     admin_set_bulk_peak_hours,
     admin_edit_turf,
+    toggle_favorite,
+    my_favorite_turfs,
 )
 
 urlpatterns = [
@@ -110,6 +112,10 @@ urlpatterns = [
     path("turfs/<int:turf_id>/", turf_details),
     path("grounds/<int:ground_id>/availability/", ground_availability),
     path("turfs/nearby/", nearby_turfs),
+
+    # -------- FAVORITES --------
+    path("favorites/toggle/<int:turf_id>/", toggle_favorite),
+    path("favorites/me/", my_favorite_turfs),
 
     # -------- BOOKINGS --------
     path("cart/add/", add_to_cart),

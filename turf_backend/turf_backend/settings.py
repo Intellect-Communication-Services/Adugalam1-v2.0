@@ -117,7 +117,7 @@ DATABASES = {
          "ENGINE": "django.db.backends.mysql",
         "NAME": "turf_db",
         "USER": "root",
-        "PASSWORD": "root",
+        "PASSWORD": "Charles@90250",
         "HOST": "127.0.0.1",
         "PORT": "3306",
         "OPTIONS": {

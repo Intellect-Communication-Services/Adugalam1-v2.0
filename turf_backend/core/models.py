@@ -72,6 +72,7 @@ class Turf(models.Model):
 
     is_approved = models.BooleanField(default=False)
     is_maintenance = models.BooleanField(default=False)
+    retire = models.IntegerField(default=0)
     ROLE_CHOICES = (
         ("vendor", "Vendor"),
         ("admin", "Admin"),
@@ -289,6 +290,11 @@ class Booking(models.Model):
         on_delete=models.CASCADE,
         related_name="bookings"
     )
+
+    # ================= USER DETAILS (CAPTURED AT BOOKING) =================
+    user_name = models.CharField(max_length=100, blank=True, null=True)
+    user_email = models.EmailField(blank=True, null=True)
+    user_mobile = models.CharField(max_length=15, blank=True, null=True)
 
     # ================= TURF =================
     turf = models.ForeignKey(
@@ -573,3 +579,15 @@ class LoveAdugalam(models.Model):
 
     def __str__(self):
         return f'Love from {self.user.email} username {self.user.name}'
+
+# -------------------- FAVORITE TURF --------------------
+class FavoriteTurf(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='favorite_turfs')
+    turf = models.ForeignKey('Turf', on_delete=models.CASCADE, related_name='favorited_by')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'turf')
+
+    def __str__(self):
+        return f"{self.user.name} - {self.turf.name}"

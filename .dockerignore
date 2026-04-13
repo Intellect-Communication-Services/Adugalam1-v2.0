@@ -1,0 +1,14 @@
+# .dockerignore
+.git
+.gitignore
+*.pyc
+__pycache__
+*.log
+*.sql
+*.json
+*.txt
+!requirements.txt
+.env.local
+.DS_Store
+media/
+turf_images/

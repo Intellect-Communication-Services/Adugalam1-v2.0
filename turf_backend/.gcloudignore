@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+venv/
+env/
+.env
+.venv
+*.egg-info/
+*.egg
+
+# Django
+*.log
+*.sqlite3
+db.sqlite3
+staticfiles/
+media/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Docker
+.dockerignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+
+# Deployment files
+.gcloudignore
+
+# Tests
+tests/
+*.test.py
+*.spec.py
+
+# Secrets
+*.pem
+*.key
+
+# Frontend (if any)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Cloud Run specific
+cloud-run-debug

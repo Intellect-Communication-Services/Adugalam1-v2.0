@@ -233,11 +233,9 @@ urlpatterns = [
     path("vendor/turfs/<int:turf_id>/maintenance/", vendor_toggle_maintenance),
     path("admin/vendor-turfs/<str:vendor_id>/", admin_get_vendor_turfs),
     path("admin/set-peak-hours/", admin_set_bulk_peak_hours),
+
+#    # path("", views.api_root, name="api-root"),
 ]
-
-
-
-
 
 # -------- MEDIA FILES --------
 # urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

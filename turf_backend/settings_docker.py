@@ -6,7 +6,16 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = 'django-insecure-docker-test-key'
 DEBUG = True
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = [
+    'localhost',
+    '127.0.0.1',
+    'adugalam.web.app', 
+    '.web.app',
+    '.run.app',  # Allows all Cloud Run URLs
+    'turf-backend-298232774766.asia-south1.run.app',
+    'adugalam-31bec.web.app',  # Your Firebase default URL
+    'api.adugalam.com',        # Your custom domain
+]
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -84,6 +93,13 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # CORS
 CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOWED_ORIGINS = [
+    "https://adugalam-31bec.web.app",
+    "https://api.adugalam.com",
+    "https://adugalam.com",
+    "https://www.adugalam.com",
+]
+CORS_ALLOW_CREDENTIALS = True
 
 # DRF
 REST_FRAMEWORK = {

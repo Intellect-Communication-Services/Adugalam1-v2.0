@@ -3847,3 +3847,20 @@ def my_favorite_turfs(request):
         favorites, many=True, context={"request": request}
     )
     return Response(serializer.data)
+
+from django.http import JsonResponse
+
+@api_view(["GET"])
+def api_root(request):
+    """API root endpoint showing available endpoints"""
+    return Response({
+        'message': 'Turf Backend API',
+        'version': '1.0',
+        'status': 'running',
+        'endpoints': {
+            'auth': '/api/login/, /api/signup/, /api/send-otp/',
+            'turfs': '/api/turfs/, /api/turfs/popular-turfs/',
+            'bookings': '/api/booking/my-bookings/',
+            'admin': '/admin/',
+        }
+    })

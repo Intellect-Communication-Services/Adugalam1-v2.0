@@ -24,14 +24,17 @@ SECRET_KEY = secret_manager.get_django_secret_key() or os.getenv(
     "django-insecure-change-this-in-production"
 )
 
-DEBUG = os.getenv("DEBUG", "True") == "True"
+DEBUG = os.getenv("DEBUG", "False") == "True"  # Changed to default False for production
 APPEND_SLASH = False
 
-ALLOWED_HOSTS = [
-    "localhost",
-    "127.0.0.1",
-    "34.14.169.159",  # Cloud SQL IP
-    "*",  # For development
+# --------------------------------------------------
+# CSRF TRUSTED ORIGINS
+# --------------------------------------------------
+CSRF_TRUSTED_ORIGINS = [
+    'https://adugalam.com',
+    'https://www.adugalam.com',
+    'https://api.adugalam.com',
+    'https://*.run.app',
 ]
 
 # --------------------------------------------------
@@ -72,7 +75,9 @@ MIDDLEWARE = [
 # --------------------------------------------------
 CORS_ALLOWED_ORIGINS = [
     "https://adugalam1-app-298232774766.asia-south1.run.app",
+    "https://turf-backend-298232774766.asia-southeast1.run.app",
     "https://turf-backend-298232774766.asia-south1.run.app",
+    "https://api.adugalam.com",
     "http://localhost:5173",  # For local development
     "http://localhost:5000",   # For local development
 ]
@@ -98,7 +103,9 @@ CORS_ALLOW_HEADERS = [
     'x-requested-with',
 ]
 
-CORS_ALLOW_ALL_ORIGINS = True 
+# Only allow all origins in development
+CORS_ALLOW_ALL_ORIGINS = DEBUG
+
 # --------------------------------------------------
 # URLS / WSGI
 # --------------------------------------------------
@@ -129,24 +136,52 @@ TEMPLATES = [
 # --------------------------------------------------
 # Use Secret Manager for database configuration
 if secret_manager.use_secret_manager:
-    DATABASES = {
-        "default": secret_manager.get_db_config()
-    }
+    db_config = secret_manager.get_db_config()
+    
+    # If using Cloud SQL socket (production), adjust the config
+    db_host = os.getenv('DB_HOST', '')
+    if db_host and db_host.startswith('/cloudsql/'):
+        db_config['HOST'] = db_host
+        db_config['PORT'] = ''  # Socket doesn't use port
+        db_config['OPTIONS'] = {}  # No SSL needed for socket
+        db_config['CONN_MAX_AGE'] = 60
+    
+    DATABASES = {"default": db_config}
 else:
     # Fallback to environment variables for local development
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.postgresql",
-            "NAME": os.getenv("DB_NAME", "turf_db"),
-            "USER": os.getenv("DB_USER", "postgres"),
-            "PASSWORD": os.getenv("DB_PASSWORD", "Adugalam@1234"),
-            "HOST": os.getenv("DB_HOST", "34.14.169.159"),
-            "PORT": os.getenv("DB_PORT", "5432"),
-            "OPTIONS": {
-                "sslmode": "require",
-            },
+    db_host = os.getenv("DB_HOST", "localhost")
+    db_port = os.getenv("DB_PORT", "5432")
+    
+    # Check if using Cloud SQL socket
+    if db_host and db_host.startswith('/cloudsql/'):
+        # Unix socket connection (Cloud Run production)
+        DATABASES = {
+            "default": {
+                "ENGINE": "django.db.backends.postgresql",
+                "NAME": os.getenv("DB_NAME", "turf_db"),
+                "USER": os.getenv("DB_USER", "postgres"),
+                "PASSWORD": os.getenv("DB_PASSWORD", "Adugalam@1234"),
+                "HOST": db_host,
+                "PORT": "",
+                "CONN_MAX_AGE": 60,
+            }
         }
-    }
+    else:
+        # TCP connection (local development)
+        DATABASES = {
+            "default": {
+                "ENGINE": "django.db.backends.postgresql",
+                "NAME": os.getenv("DB_NAME", "turf_db"),
+                "USER": os.getenv("DB_USER", "postgres"),
+                "PASSWORD": os.getenv("DB_PASSWORD", "Adugalam@1234"),
+                "HOST": db_host,
+                "PORT": db_port,
+                "OPTIONS": {
+                    "sslmode": "require",
+                },
+                "CONN_MAX_AGE": 60,
+            }
+        }
 
 # --------------------------------------------------
 # RAZORPAY KEYS (from Secret Manager)
@@ -181,8 +216,9 @@ USE_TZ = True
 # --------------------------------------------------
 # STATIC FILES
 # --------------------------------------------------
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -250,16 +286,54 @@ LOGGING = {
     },
 }
 
-# Add near the end of settings.py
-STATIC_URL = '/static/'
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+# ==================================================
+# CLOUD RUN / PRODUCTION SETTINGS (KEEP AT THE END)
+# ==================================================
 
-MIDDLEWARE.insert(1, 'whitenoise.middleware.WhiteNoiseMiddleware')  # Add after SecurityMiddleware
+# Add WhiteNoise middleware if not already present
+if 'whitenoise.middleware.WhiteNoiseMiddleware' not in MIDDLEWARE:
+    # Insert after SecurityMiddleware (position 1)
+    MIDDLEWARE.insert(1, 'whitenoise.middleware.WhiteNoiseMiddleware')
 
-ALLOWED_HOSTS = [
-    'turf-backend-298232774766.asia-south1.run.app',
-    'adugalam1-app-298232774766.asia-south1.run.app',
-    'localhost',
-    '127.0.0.1',
-]
+# Production security settings (only enforce if not DEBUG)
+if not DEBUG:
+    # Allow Cloud Run and custom domain
+    ALLOWED_HOSTS = [
+        'turf-backend-298232774766.asia-southeast1.run.app',
+        'turf-backend-298232774766.asia-south1.run.app',
+        'adugalam1-app-298232774766.asia-south1.run.app',
+        'api.adugalam.com',
+        '.run.app',
+        'localhost',
+        '127.0.0.1',
+    ]
+    
+    # Trust Cloud Run's proxy headers (critical for HTTPS)
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    
+    # Force Django to trust the proxy
+    USE_X_FORWARDED_HOST = True
+    USE_X_FORWARDED_PORT = True
+    
+    # Enforce HTTPS redirects
+    SECURE_SSL_REDIRECT = True
+    SECURE_HSTS_SECONDS = 31536000  # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    
+    # Secure cookies
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    
+    # Additional security headers
+    SECURE_REFERRER_POLICY = 'same-origin'
+    SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin'
+else:
+    # Development settings - allow all hosts
+    ALLOWED_HOSTS = ['*']
+    SECURE_SSL_REDIRECT = False
+    SECURE_PROXY_SSL_HEADER = None
+    USE_X_FORWARDED_HOST = False
+    USE_X_FORWARDED_PORT = False

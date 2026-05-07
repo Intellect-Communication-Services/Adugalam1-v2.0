@@ -19,12 +19,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the entire project
 COPY . .
 
-# Create directory for static files if it doesn't exist
+# Create directory for static files
 RUN mkdir -p staticfiles
 
-# Run migrations and collect static (ignore errors for now)
+# Run migrations and collect static at build time
 RUN python manage.py migrate --noinput || true
 RUN python manage.py collectstatic --noinput || true
 
-# Run the application with gunicorn
+# Run the application
 CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 turf_backend.wsgi:application

@@ -113,13 +113,50 @@ SIMPLE_JWT = {
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
 }
 
-# Email
+# Email Configuration with Secret Manager
+# Check if running in Cloud Run (has K_SERVICE environment variable)
+def is_cloud_run():
+    return os.getenv('K_SERVICE') is not None
+
+def get_secret(secret_name):
+    """Fetch secret from GCP Secret Manager"""
+    try:
+        from google.cloud import secretmanager
+        client = secretmanager.SecretManagerServiceClient()
+        project_id = os.getenv('GCP_PROJECT_ID', 'adugalam')
+        name = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
+        response = client.access_secret_version(name=name)
+        return response.payload.data.decode('UTF-8')
+    except Exception as e:
+        print(f"Error fetching secret {secret_name}: {e}")
+        return None
+
+# Email settings
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = os.getenv('SMTP_HOST', 'smtp.gmail.com')
-EMAIL_PORT = int(os.getenv('SMTP_PORT', 587))
-EMAIL_HOST_USER = os.getenv('SMTP_USER', '')
-EMAIL_HOST_PASSWORD = os.getenv('SMTP_PASS', '')
 EMAIL_USE_TLS = True
+
+if is_cloud_run():
+    # In Cloud Run - fetch from Secret Manager
+    print("Running in Cloud Run, fetching email credentials from Secret Manager...")
+    EMAIL_HOST = get_secret('EMAIL_HOST')
+    EMAIL_PORT = int(get_secret('EMAIL_PORT') or 587)
+    EMAIL_HOST_USER = get_secret('EMAIL_HOST_USER')
+    EMAIL_HOST_PASSWORD = get_secret('smtp-pass')  # Using 'smtp-pass' from your screenshot
+    DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+    
+    # Log success (without exposing password)
+    if EMAIL_HOST_USER:
+        print(f"Email configured for: {EMAIL_HOST_USER}")
+    else:
+        print("WARNING: Failed to fetch email credentials from Secret Manager")
+else:
+    # Local development - use environment variables
+    print("Running locally, using environment variables for email...")
+    EMAIL_HOST = os.getenv('SMTP_HOST', 'smtp.gmail.com')
+    EMAIL_PORT = int(os.getenv('SMTP_PORT', 587))
+    EMAIL_HOST_USER = os.getenv('SMTP_USER', '')
+    EMAIL_HOST_PASSWORD = os.getenv('SMTP_PASS', '')
+    DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 
 # Razorpay
 RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY_ID', '')

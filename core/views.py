@@ -360,9 +360,28 @@ from django.db import models
 def turf_details(request, turf_id):
 
     try:
-        turf = Turf.objects.get(id=turf_id, retire=0)
+        # Prefetch all related rows in one DB round-trip (no extra queries)
+        turf = Turf.objects.prefetch_related(
+            "banners", "gallery", "slot_items", "game_items"
+        ).get(id=turf_id, retire=0)
     except Turf.DoesNotExist:
         return Response({"error": "Turf not found"}, status=404)
+
+    # Build slot list — price uses turf.price_per_hour (single source of truth)
+    slots = [
+        {
+            "id": s.id,
+            "start_time": s.start_time.strftime("%H:%M"),
+            "end_time":   s.end_time.strftime("%H:%M"),
+            "time_display": (
+                f"{s.start_time.strftime('%I:%M %p')} - "
+                f"{s.end_time.strftime('%I:%M %p')}"
+            ),
+            "price": turf.price_per_hour,
+            "is_available": s.is_available,
+        }
+        for s in turf.slot_items.all().order_by("start_time")
+    ]
 
     return Response(
         {
@@ -370,16 +389,23 @@ def turf_details(request, turf_id):
             "name": turf.name,
             "location": turf.location,
             "price_per_hour": turf.price_per_hour,
-            # ✅ ADD IMAGES
+            # ── Detail fields (new) ──
+            "description": turf.description or "",
+            "amenities":   turf.amenities   or [],
+            "features":    turf.features    or [],
+            "games": [g.game_name for g in turf.game_items.all()],
+            "slots": slots,
+            # ── Images ──
             "banner_images": [
-                request.build_absolute_uri(img.image.url) for img in turf.banners.all()
+                request.build_absolute_uri(img.image.url)
+                for img in turf.banners.all()
             ],
             "gallery_images": [
-                request.build_absolute_uri(img.image.url) for img in turf.gallery.all()
+                request.build_absolute_uri(img.image.url)
+                for img in turf.gallery.all()
             ],
         }
     )
-
 
 @api_view(["GET"])
 def ground_availability(request):

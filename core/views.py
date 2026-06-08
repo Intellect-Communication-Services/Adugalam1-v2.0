@@ -4206,7 +4206,7 @@ def booking_receipt(request, booking_id):
         "turf_name": booking.turf.name,
         "date": booking.date,
         "payment_id": payment.razorpay_payment_id,
-        "amount_paid": float(payment.amount),
+        "amount_paid": float(payment.amount)/100,
         "created_at": payment.created_at.isoformat() if payment.created_at else None,
         "slots": [
              f"{s.start_time.strftime('%I:%M %p')} - {s.end_time.strftime('%I:%M %p')}"

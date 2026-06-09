@@ -5,10 +5,18 @@ from django.conf.urls.static import static
 # pyrefly: ignore [missing-import]
 from . import views
 
-from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
-)
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework.response import Response
+from rest_framework import status
+from core.models import AppUser
+
+class CustomTokenRefreshView(TokenRefreshView):
+    def post(self, request, *args, **kwargs):
+        try:
+            return super().post(request, *args, **kwargs)
+        except AppUser.DoesNotExist:
+            return Response({"error": "User account no longer exists"}, status=status.HTTP_401_UNAUTHORIZED)
+
 # pyrefly: ignore [missing-import]
 from .views import admin_banner_detail, admin_manage_banners, delete_user, get_hit_stats, get_users, list_homepage_banners, record_hit, update_user, user_notifications, vendor_my_turfs, vendor_profile, vendor_requests, user_retire_request, admin_retire_requests, admin_retire_action, restore_account, list_events, admin_events, admin_event_detail, book_event
 
@@ -106,7 +114,7 @@ urlpatterns = [
     path("user/change-password/", change_password),
     path("user/profile/", update_user_profile),
     path("token/", TokenObtainPairView.as_view()),
-    path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    path("token/refresh/", CustomTokenRefreshView.as_view(), name="token_refresh"),
 
     path("turfs/<int:turf_id>/games", turf_games),
 

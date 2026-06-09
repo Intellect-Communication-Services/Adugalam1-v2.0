@@ -207,8 +207,15 @@ def login_view(request):
 def send_reset_otp(request):
     email = request.data.get("email")
 
-    if not AppUser.objects.filter(email=email).exists():
+    user = AppUser.objects.filter(email=email).first()
+    if not user:
         return Response({"error": "User not found"}, status=404)
+
+    if user.retire == 1:
+        return Response(
+            {"error": "Account disabled. Please contact myadugalam@gmail.com for assistance."},
+            status=403
+        )
 
     EmailOTP.objects.filter(email=email).delete()  # clear old OTPs
 
@@ -639,6 +646,43 @@ def create_payment_order(request):
         print("Payment Order Error:", str(e))
         return Response({"error": "Something went wrong"}, status=500)
 
+import threading
+from django.core.mail import send_mail
+from django.conf import settings
+
+def send_booking_emails(booking):
+    try:
+        slots_str = ", ".join([f"{s.start_time.strftime('%I:%M %p')} - {s.end_time.strftime('%I:%M %p')}" for s in booking.slots.all()])
+        user_name = booking.user_name or (booking.user.first_name if booking.user else "User")
+        user_email = booking.user_email or (booking.user.email if booking.user else None)
+        
+        turf_name = booking.turf.name
+        date_str = booking.date.strftime("%B %d, %Y") if booking.date else "TBD"
+        amount = booking.total_payable
+
+        # 1. Email to User
+        if user_email:
+            user_subject = f"Booking Confirmed at {turf_name}"
+            user_message = f"Hello {user_name},\n\nYour booking at {turf_name} is confirmed!\n\nDetails:\nDate: {date_str}\nTime: {slots_str}\nTotal Paid: ₹{amount}\n\nEnjoy your game!\nAdugalam Team"
+            send_mail(user_subject, user_message, settings.EMAIL_HOST_USER, [user_email], fail_silently=True)
+
+        # 2. Email to Vendor
+        vendor_email = None
+        if booking.turf.vendor and booking.turf.vendor.email:
+            vendor_email = booking.turf.vendor.email
+            
+        if vendor_email:
+            vendor_subject = f"New Booking Alert: {turf_name}"
+            vendor_message = f"Hello Vendor,\n\nA new booking has been made at {turf_name}.\n\nDetails:\nPlayer: {user_name}\nDate: {date_str}\nTime: {slots_str}\nAmount Paid: ₹{amount}\n\nPlease check your vendor dashboard for more details."
+            send_mail(vendor_subject, vendor_message, settings.EMAIL_HOST_USER, [vendor_email], fail_silently=True)
+
+        # 3. Email to Admin
+        admin_subject = f"Admin Alert: New Booking at {turf_name}"
+        admin_message = f"A new booking was successfully processed.\n\nTurf: {turf_name}\nPlayer: {user_name} ({user_email})\nDate: {date_str}\nTime: {slots_str}\nAmount: ₹{amount}"
+        send_mail(admin_subject, admin_message, settings.EMAIL_HOST_USER, [settings.EMAIL_HOST_USER], fail_silently=True)
+
+    except Exception as e:
+        print("Error sending confirmation emails:", str(e))
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
@@ -668,13 +712,16 @@ def verify_payment(request):
         booking.vendor_status = "ACTIVE"
         booking.save()
 
+    # Trigger emails asynchronously
+    threading.Thread(target=send_booking_emails, args=(booking,)).start()
+
     #     send_whatsapp(
     #         booking.user.mobile,
     #         f"""Booking Confirmed! 🎉
-
+    #
     # Turf: {booking.turf.name}
     # Date: {booking.date}
-
+    #
     # Enjoy your game!"""
     #     )
 
@@ -2253,7 +2300,7 @@ def update_turf_priority(request, turf_id):
     return Response({"message": "Priority updated"})
 
 
-@api_view(["GET", "PATCH"])
+@api_view(["GET", "PATCH", "PUT", "DELETE"])
 @permission_classes([IsAuthenticated])
 @parser_classes([MultiPartParser, FormParser])
 def admin_edit_turf(request, turf_id):
@@ -2261,6 +2308,11 @@ def admin_edit_turf(request, turf_id):
         turf = Turf.objects.get(id=turf_id)
     except Turf.DoesNotExist:
         return Response({"error": "Turf not found"}, status=404)
+        
+    if request.method == "DELETE":
+        turf.delete()
+        return Response({"success": True, "message": "Turf deleted successfully"})
+        
     if request.method == "GET":
         data = {
             "id": turf.id,
@@ -2278,7 +2330,7 @@ def admin_edit_turf(request, turf_id):
             "gallery_images": [img.image.url for img in turf.gallery.all()],
         }
         return Response(data)
-    if request.method == "PATCH":
+    if request.method in ["PATCH", "PUT"]:
         turf.name = request.data.get("name", turf.name)
         turf.location = request.data.get("location", turf.location)
 

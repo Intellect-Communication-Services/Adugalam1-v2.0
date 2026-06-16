@@ -2140,8 +2140,14 @@ def vendor_status_toggle(request, vendor_id):
         # Also update all related turfs based on vendor status
         if new_status == "Approved":
             Turf.objects.filter(vendor=vendor).update(is_approved=True)
-        elif new_status == "Inactive":
+            send_whatsapp_message(
+                phone=vendor.phone, vendor_id=vendor.vendor_id, location=vendor.location, status="Approved"
+            )
+        elif new_status in ["Inactive", "Rejected"]:
             Turf.objects.filter(vendor=vendor).update(is_approved=False)
+            send_whatsapp_message(
+                phone=vendor.phone, vendor_id=vendor.vendor_id, location=vendor.location, status="Rejected"
+            )
 
         return Response({"message": "Status updated", "status": vendor.status})
     except Vendor.DoesNotExist:
